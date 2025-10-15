@@ -56,7 +56,8 @@
         %idx = OpLoad %uint %idx_ptr None
     %v4u_ptr = OpAccessChain %_ptr_Uniform_v4uint %1 %uint_0 %idx
 
-   %word_ptr = OpAccessChain %_ptr_Uniform_uint %v4u_ptr %uint_1
+   %word_idx = OpIAdd %uint %uint_0 %uint_1
+   %word_ptr = OpAccessChain %_ptr_Uniform_uint %v4u_ptr %word_idx
 
        %word = OpLoad %uint %word_ptr None
 

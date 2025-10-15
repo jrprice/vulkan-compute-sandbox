@@ -195,10 +195,11 @@ int main(int argc, char *argv[]) {
   void *in_data;
   CheckError(vkMapMemory(device, in_buffer_memory, 0, kBufferSize, 0, &in_data),
              "mapping in_buffer memory");
-  uint32_t *in_buffer_ptr = (uint32_t *)in_data;
-  for (uint32_t i = 0; i < 16; ++i) {
-    in_buffer_ptr[i] = i;
-  }
+  uint32_t *in_values = (uint32_t *)in_data;
+  in_values[0] = 100;
+  in_values[1] = 42;
+  in_values[2] = 102;
+  in_values[3] = 103;
   vkUnmapMemory(device, in_buffer_memory);
 
   // Initialize out_buffer to zeros.
