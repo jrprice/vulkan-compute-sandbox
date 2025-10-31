@@ -1,67 +1,75 @@
-; SPIR-V
-; Version: 1.3
-; Generator: Google Tint Compiler; 1
-; Bound: 41
-; Schema: 0
                OpCapability Shader
-         %19 = OpExtInstImport "GLSL.std.450"
+               OpCapability Float16
+               OpCapability StorageBuffer16BitAccess
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %main "main"
+               OpEntryPoint GLCompute %main "main" %out %lhs_values %rhs_values
                OpExecutionMode %main LocalSize 1 1 1
-               OpMemberName %input_block_tint_explicit_layout 0 "inner"
-               OpName %input_block_tint_explicit_layout "input_block_tint_explicit_layout"
-               OpMemberName %output_block 0 "inner"
-               OpName %output_block "output_block"
-               OpName %idx "idx"
-               OpName %main "main"
-
-               OpDecorate %_arr_v4uint_uint_500 ArrayStride 16
-               OpMemberDecorate %input_block_tint_explicit_layout 0 Offset 0
-               OpDecorate %input_block_tint_explicit_layout Block
-               OpDecorate %1 DescriptorSet 0
-               OpDecorate %1 Binding 0
-               OpDecorate %1 NonWritable
-               OpMemberDecorate %output_block 0 Offset 0
-               OpDecorate %output_block Block
-               OpDecorate %8 DescriptorSet 0
-               OpDecorate %8 Binding 1
-               OpDecorate %8 Coherent
+               OpDecorate %array ArrayStride 4
+               OpMemberDecorate %struct 0 Offset 0
+               OpDecorate %struct Block
+               OpDecorate %out DescriptorSet 0
+               OpDecorate %out Binding 0
 
        %uint = OpTypeInt 32 0
      %uint_0 = OpConstant %uint 0
      %uint_1 = OpConstant %uint 1
-     %uint_4 = OpConstant %uint 4
-   %uint_500 = OpConstant %uint 500
+    %uint_15 = OpConstant %uint 15
 
-     %v4uint = OpTypeVector %uint 4
-%_arr_v4uint_uint_500 = OpTypeArray %v4uint %uint_500
-%input_block_tint_explicit_layout = OpTypeStruct %_arr_v4uint_uint_500
-%_ptr_Uniform_input_block_tint_explicit_layout = OpTypePointer Uniform %input_block_tint_explicit_layout
-          %1 = OpVariable %_ptr_Uniform_input_block_tint_explicit_layout Uniform
-
-%output_block = OpTypeStruct %uint
-%_ptr_StorageBuffer_output_block = OpTypePointer StorageBuffer %output_block
-          %8 = OpVariable %_ptr_StorageBuffer_output_block StorageBuffer
-
-%_ptr_Uniform_v4uint = OpTypePointer Uniform %v4uint
-%_ptr_Uniform_uint = OpTypePointer Uniform %uint
-%_ptr_StorageBuffer_uint = OpTypePointer StorageBuffer %uint
-
+       %bool = OpTypeBool
        %void = OpTypeVoid
-         %37 = OpTypeFunction %void
-       %main = OpFunction %void None %37
+  %main_type = OpTypeFunction %void
+
+       %half = OpTypeFloat 16
+     %v2half = OpTypeVector %half 2
+      %array = OpTypeArray %v2half %uint_15
+     %struct = OpTypeStruct %array
+
+     %half_4 = OpConstant %half 0x1p+2
+     %half_1 = OpConstant %half 0x1p+0
+   %v2half_4 = OpConstantComposite %v2half %half_4 %half_4
+   %v2half_1 = OpConstantComposite %v2half %half_1 %half_1
+ %arr_half_4 = OpConstantComposite %array %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4 %v2half_4
+ %arr_half_1 = OpConstantComposite %array %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1 %v2half_1
+
+%_ptr_Function_uint = OpTypePointer Function %uint
+%_ptr_Private_v2half = OpTypePointer Private %v2half
+%_ptr_Private__array = OpTypePointer Private %array
+%_ptr_StorageBuffer_v2half = OpTypePointer StorageBuffer %v2half
+%_ptr_StorageBuffer__struct = OpTypePointer StorageBuffer %struct
+
+ %lhs_values = OpVariable %_ptr_Private__array Private %arr_half_4
+ %rhs_values = OpVariable %_ptr_Private__array Private %arr_half_1
+        %out = OpVariable %_ptr_StorageBuffer__struct StorageBuffer
+
+       %main = OpFunction %void None %main_type
  %main_start = OpLabel
+    %idx_var = OpVariable %_ptr_Function_uint Function %uint_0
 
-    %idx_ptr = OpAccessChain %_ptr_StorageBuffer_uint %8 %uint_0
-        %idx = OpLoad %uint %idx_ptr None
-    %v4u_ptr = OpAccessChain %_ptr_Uniform_v4uint %1 %uint_0 %idx
+               OpBranch %loop_header
+%loop_header = OpLabel
+               OpLoopMerge %loop_merge %continuing None
+               OpBranch %loop_cond
+  %loop_cond = OpLabel
+        %idx = OpLoad %uint %idx_var None
+  %idx_lt_15 = OpULessThan %bool %idx %uint_15
+               OpSelectionMerge %loop_body None
+               OpBranchConditional %idx_lt_15 %loop_body %loop_merge
 
-   %word_ptr = OpAccessChain %_ptr_Uniform_uint %v4u_ptr %uint_1
+  %loop_body = OpLabel
+    %lhs_ptr = OpAccessChain %_ptr_Private_v2half %lhs_values %idx
+    %rhs_ptr = OpAccessChain %_ptr_Private_v2half %rhs_values %idx
+        %lhs = OpLoad %v2half %lhs_ptr None
+        %rhs = OpLoad %v2half %rhs_ptr None
+        %add = OpFAdd %v2half %lhs %rhs
+    %out_ptr = OpAccessChain %_ptr_StorageBuffer_v2half %out %uint_0 %idx
+               OpStore %out_ptr %add None
+               OpBranch %continuing
 
-       %word = OpLoad %uint %word_ptr None
+ %continuing = OpLabel
+        %inc = OpIAdd %uint %idx %uint_1
+               OpStore %idx_var %inc None
+               OpBranch %loop_header
 
-    %out_ptr = OpAccessChain %_ptr_StorageBuffer_uint %8 %uint_0
-               OpStore %out_ptr %word None
-
+ %loop_merge = OpLabel
                OpReturn
                OpFunctionEnd

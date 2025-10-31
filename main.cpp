@@ -111,8 +111,9 @@ int main(int argc, char *argv[]) {
   VkPhysicalDeviceProperties device_properties;
   vkGetPhysicalDeviceProperties(physical_device, &device_properties);
   std::cout << "Device name: " << device_properties.deviceName << "\n";
-  std::cout << "Driver: " << std::hex << device_properties.driverVersion
-            << std::dec << "\n";
+  uint32_t major = (device_properties.driverVersion >> 22) & 0x3FF;
+  uint32_t minor = (device_properties.driverVersion >> 14) & 0x0FF;
+  std::cout << "Driver: " << major << "." << minor << "\n";
 
   VkDeviceQueueCreateInfo queue_create_info{};
   queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -122,11 +123,26 @@ int main(int argc, char *argv[]) {
   queue_create_info.pQueuePriorities = &queue_priority;
 
   VkPhysicalDeviceFeatures device_features{};
+  VkPhysicalDevice16BitStorageFeatures storage_16_features{};
+  storage_16_features.sType =
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
+  storage_16_features.storageBuffer16BitAccess = VK_TRUE;
+  VkPhysicalDeviceShaderFloat16Int8Features f16_features{};
+  f16_features.sType =
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
+  f16_features.shaderFloat16 = VK_TRUE;
+  f16_features.pNext = &storage_16_features;
+  VkPhysicalDeviceFeatures2 device_features_2{};
+  device_features_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+  device_features_2.features = device_features;
+  device_features_2.pNext = &f16_features;
+
   VkDeviceCreateInfo device_create_info{};
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
   device_create_info.pQueueCreateInfos = &queue_create_info;
   device_create_info.queueCreateInfoCount = 1;
   device_create_info.pEnabledFeatures = &device_features;
+  device_create_info.pNext = &device_features_2;
 
   VkDevice device;
   CheckError(
@@ -148,58 +164,34 @@ int main(int argc, char *argv[]) {
              "creating shader module");
 
   const uint32_t kBufferSize = 16 * sizeof(uint32_t);
-  VkBuffer in_buffer;
   VkBuffer out_buffer;
-  VkDeviceMemory in_buffer_memory;
   VkDeviceMemory out_buffer_memory;
 
   VkBufferCreateInfo buffer_info{};
   buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_info.size = kBufferSize;
-  buffer_info.usage =
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+  buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  CheckError(vkCreateBuffer(device, &buffer_info, nullptr, &in_buffer),
-             "creating in buffer");
   CheckError(vkCreateBuffer(device, &buffer_info, nullptr, &out_buffer),
              "creating out buffer");
 
-  VkMemoryRequirements in_mem_requirements;
-  vkGetBufferMemoryRequirements(device, in_buffer, &in_mem_requirements);
   VkMemoryRequirements out_mem_requirements;
   vkGetBufferMemoryRequirements(device, out_buffer, &out_mem_requirements);
 
   uint32_t mem_type_index =
-      FindMemoryType(physical_device, in_mem_requirements.memoryTypeBits,
+      FindMemoryType(physical_device, out_mem_requirements.memoryTypeBits,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
   VkMemoryAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.allocationSize = in_mem_requirements.size;
-  alloc_info.memoryTypeIndex = mem_type_index;
-
-  CheckError(vkAllocateMemory(device, &alloc_info, nullptr, &in_buffer_memory),
-             "allocating in buffer memory");
   alloc_info.allocationSize = out_mem_requirements.size;
+  alloc_info.memoryTypeIndex = mem_type_index;
   CheckError(vkAllocateMemory(device, &alloc_info, nullptr, &out_buffer_memory),
              "allocating out buffer memory");
 
-  CheckError(vkBindBufferMemory(device, in_buffer, in_buffer_memory, 0),
-             "binding in buffer memory");
   CheckError(vkBindBufferMemory(device, out_buffer, out_buffer_memory, 0),
              "binding out buffer memory");
-
-  // Supply values for in_buffer.
-  void *in_data;
-  CheckError(vkMapMemory(device, in_buffer_memory, 0, kBufferSize, 0, &in_data),
-             "mapping in_buffer memory");
-  uint32_t *in_buffer_ptr = (uint32_t *)in_data;
-  for (uint32_t i = 0; i < 16; ++i) {
-    in_buffer_ptr[i] = i;
-  }
-  vkUnmapMemory(device, in_buffer_memory);
 
   // Initialize out_buffer to zeros.
   void *out_data;
@@ -209,20 +201,13 @@ int main(int argc, char *argv[]) {
   memset(out_data, 0, kBufferSize);
   vkUnmapMemory(device, out_buffer_memory);
 
-  VkDescriptorSetLayoutBinding in_layout_binding{};
-  in_layout_binding.binding = 0;
-  in_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  in_layout_binding.descriptorCount = 1;
-  in_layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
   VkDescriptorSetLayoutBinding out_layout_binding{};
-  out_layout_binding.binding = 1;
+  out_layout_binding.binding = 0;
   out_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   out_layout_binding.descriptorCount = 1;
   out_layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
   std::vector<VkDescriptorSetLayoutBinding> bindings = {
-      in_layout_binding,
       out_layout_binding,
   };
   VkDescriptorSetLayoutCreateInfo layout_info{};
@@ -236,10 +221,8 @@ int main(int argc, char *argv[]) {
              "creating descriptor set layout");
 
   std::vector<VkDescriptorPoolSize> pool_sizes(2);
-  pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   pool_sizes[0].descriptorCount = 2;
-  pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  pool_sizes[1].descriptorCount = 2;
 
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -262,24 +245,10 @@ int main(int argc, char *argv[]) {
   CheckError(vkAllocateDescriptorSets(device, &set_alloc_info, &descriptor_set),
              "allocating descriptor sets");
 
-  VkDescriptorBufferInfo in_buffer_info{};
-  in_buffer_info.buffer = in_buffer;
-  in_buffer_info.offset = 0;
-  in_buffer_info.range = kBufferSize;
-
   VkDescriptorBufferInfo out_buffer_info{};
   out_buffer_info.buffer = out_buffer;
   out_buffer_info.offset = 0;
   out_buffer_info.range = kBufferSize;
-
-  VkWriteDescriptorSet in_write{};
-  in_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  in_write.dstSet = descriptor_set;
-  in_write.dstBinding = 0;
-  in_write.dstArrayElement = 0;
-  in_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  in_write.descriptorCount = 1;
-  in_write.pBufferInfo = &in_buffer_info;
 
   VkWriteDescriptorSet out_write{};
   out_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -290,7 +259,7 @@ int main(int argc, char *argv[]) {
   out_write.descriptorCount = 1;
   out_write.pBufferInfo = &out_buffer_info;
 
-  std::vector<VkWriteDescriptorSet> descriptor_writes = {in_write, out_write};
+  std::vector<VkWriteDescriptorSet> descriptor_writes = {out_write};
   vkUpdateDescriptorSets(device,
                          static_cast<uint32_t>(descriptor_writes.size()),
                          descriptor_writes.data(), 0, nullptr);
@@ -382,21 +351,28 @@ int main(int argc, char *argv[]) {
   CheckError(
       vkMapMemory(device, out_buffer_memory, 0, kBufferSize, 0, &out_data),
       "mapping memory");
-  uint32_t *out_values = (uint32_t *)out_data;
+  uint16_t *out_values = (uint16_t *)out_data;
+  bool pass = true;
   std::cout << "Output data:\n";
-  for (int i = 0; i < 16; ++i) {
-    std::cout << out_values[i] << " ";
+  for (int i = 0; i < 15 * 2; ++i) {
+    std::cout << std::hex << "0x" << out_values[i] << " ";
+    if (out_values[i] != 0x4500) {
+      pass = false;
+    }
   }
-  std::cout << "\n";
+  std::cout << "\n\n";
+  if (pass) {
+    std::cout << "PASS\n";
+  } else {
+    std::cout << "FAIL (expected 0x4500)\n";
+  }
   vkUnmapMemory(device, out_buffer_memory);
 
   vkDestroyPipeline(device, compute_pipeline, nullptr);
   vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
   vkDestroyDescriptorSetLayout(device, descriptor_set_layout, nullptr);
   vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
-  vkDestroyBuffer(device, in_buffer, nullptr);
   vkDestroyBuffer(device, out_buffer, nullptr);
-  vkFreeMemory(device, in_buffer_memory, nullptr);
   vkFreeMemory(device, out_buffer_memory, nullptr);
   vkDestroyShaderModule(device, compute_shader_module, nullptr);
   vkDestroyCommandPool(device, command_pool, nullptr);
